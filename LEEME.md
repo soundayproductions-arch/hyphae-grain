@@ -1,7 +1,8 @@
-# Hyphae Grain · VST3 para Windows (Cubase 12)
+# Mycelium Sound System · VST3 para Windows (Cubase 12)
 
 Sintetizador granular con tonos isocrónicos, delay ping-pong, reverb, MIDI Learn,
-y una sección musical (tonalidad, escala, armonía) con tempo de Cubase o del reloj MIDI de Traktor.
+una sección musical (tonalidad, escala, armonía) con tempo de Cubase o del reloj MIDI de Traktor,
+y salida/entrada OSC para visuales.
 
 ---
 
@@ -10,8 +11,8 @@ y una sección musical (tonalidad, escala, armonía) con tempo de Cubase o del r
 ### Opción A · Sin instalar nada (GitHub, recomendada)
 1. Crea un repositorio nuevo en github.com y sube esta carpeta tal cual.
 2. GitHub compila solo (pestaña **Actions** → *Build Windows VST3*, unos 10 min).
-3. Descarga el artefacto **HyphaeGrain-Windows** y descomprímelo.
-4. Copia la carpeta `Hyphae Grain.vst3` a `C:\Program Files\Common Files\VST3\`.
+3. Descarga el artefacto **MyceliumSoundSystem-Windows** y descomprímelo.
+4. Copia `Mycelium Sound System.vst3` a `C:\Program Files\Common Files\VST3\`.
 
 ### Opción B · En tu PC
 1. Instala **Visual Studio 2022 Community** con la carga de trabajo *Desarrollo para el escritorio con C++*.
@@ -22,23 +23,23 @@ y una sección musical (tonalidad, escala, armonía) con tempo de Cubase o del r
    cmake --build build --config Release
    ```
    (La primera vez descarga JUCE 8.0.4 automáticamente.)
-4. Copia `build\HyphaeGrain_artefacts\Release\VST3\Hyphae Grain.vst3` a `C:\Program Files\Common Files\VST3\`.
+4. Copia `build\MyceliumSoundSystem_artefacts\Release\VST3\Mycelium Sound System.vst3` a `C:\Program Files\Common Files\VST3\`.
 5. En Cubase: *Studio > VST Plug-in Manager > Update plug-in information*.
 
-También se genera **Hyphae Grain.exe** (Standalone) para probar sin Cubase.
+También se genera **Mycelium Sound System.exe** (Standalone) para probar sin Cubase.
 
 ---
 
 ## 2. Cubase 12 con el Biotron
 
-1. Crea una **pista de instrumento** con *Hyphae Grain*.
+1. Crea una **pista de instrumento** con *Mycelium Sound System*.
 2. En la entrada MIDI de esa pista elige el **Biotron** (USB). Activa la monitorización (altavoz).
 3. Las notas del Biotron se ajustan a la **Key** y **Scale** elegidas y se convierten en acordes según **Harmony**.
 4. Para que los CC del Biotron muevan parámetros: pulsa **MIDI Learn** en el plugin, haz clic en un control
    (por ejemplo *Position* o *Iso rate*) y deja que el Biotron envíe ese CC. Aparece debajo, p. ej. `Cubase ch1 CC20`.
 
 **Live input:** para granular audio en directo, activa *Side-Chain* en la cabecera del plugin
-y envía una pista de audio a *Hyphae Grain · Live In (Side-Chain)*. Pon **Source = Live input**.
+y envía una pista de audio a *Mycelium Sound System · Live In (Side-Chain)*. Pon **Source = Live input**.
 
 ---
 
@@ -99,3 +100,51 @@ de Traktor se guardan con el proyecto de Cubase.
 
 **Drone** toca la tónica de la tonalidad actual (con la armonía elegida), así un cambio de Key en Traktor
 cambia el drone al instante.
+
+---
+
+## 5. OSC para visuales
+
+En la sección **OSC** del plugin:
+- **Send**: On. **Send to**: `127.0.0.1` y puerto `7000` (mismo PC). Para otro ordenador, pon su IP.
+- **Receive**: On, puerto `9000`, para controlar el plugin desde TouchOSC, TouchDesigner, etc.
+
+### Lo que envía (prefijo `/mss`)
+
+| Dirección | Valor | Para qué |
+|---|---|---|
+| `/mss/pulse` | int 1 | Cada pulso isocrónico (trigger, flash, strobe) |
+| `/mss/pulse/count` | int | Contador de pulsos |
+| `/mss/beat` | int 1 | Cada negra del tempo (Cubase o Traktor) |
+| `/mss/beat/bar` | int 1–4 | Posición en el compás |
+| `/mss/gate` | float 0–1 | Envolvente del gate isocrónico (50 Hz) |
+| `/mss/level` | float 0–1 | Nivel de salida del plugin |
+| `/mss/position` | float 0–1 | Posición de los grains en el sample |
+| `/mss/grains/norm` | float 0–1 | Densidad real de grains (`/mss/grains` = grains/s) |
+| `/mss/isohz/norm` | float 0–1 | Frecuencia isocrónica (0–45 Hz) (`/mss/isohz` = Hz) |
+| `/mss/band` | int 0–4 | Banda: delta, theta, alfa, beta, gamma |
+| `/mss/bpm/norm` | float 0–1 | Tempo 40–200 BPM (`/mss/bpm` = BPM) |
+| `/mss/ch1/note` | float 0–1 | Última nota de la planta en canal 1 (nota/127) |
+| `/mss/ch1/velocity` | float 0–1 | Velocidad de esa nota (0 al soltarla) |
+| `/mss/ch1/gate` | int 0/1 | Nota pulsada o no. `ch2` para la segunda planta, etc. |
+| `/mss/note` | int ch, nota, vel | Todas las notas en un solo mensaje |
+| `/mss/key`, `/mss/scale`, `/mss/harmony` | int | Al cambiar la tonalidad, escala o armonía |
+| `/mss/param/<id>` | float 0–1 | Cualquier parámetro al cambiar (p. ej. `/mss/param/density`) |
+
+Los canales `ch1`–`ch16` son las pistas MIDI de Cubase; `ch17`–`ch32` son mensajes del puerto de Traktor.
+
+### Lo que recibe
+- `/mss/param/<id>` float 0–1 → mueve el parámetro (p. ej. `/mss/param/isoRate 0.5`).
+- `/mss/param/<id>/value` en unidades reales (p. ej. `/mss/param/isoRate/value 8.0` = 8 Hz).
+
+IDs: source, wave, position, spray, scan, size, density, pitch, detune, stereo, reverse, isoOn, isoSync, isoRate,
+isoDepth, isoDuty, isoEdge, key, scale, harmony, quantize, transpose, keyFollow, drone, tempoSource, bpm, dlySync,
+dlyTime, dlyFb, dlyTone, dlySend, revSize, revDamp, revPre, revSend, fxPulse, gain.
+
+### Resolume Arena / Avenue
+1. *Preferences > OSC* → **OSC Input** activado, puerto **7000**.
+2. *Shortcuts > Edit OSC*, haz clic en un parámetro de Resolume (opacidad de una capa, un efecto…).
+3. Cuando el plugin envíe, Resolume aprende la dirección. Usa `/mss/pulse` para triggers y `/mss/gate` o `/mss/level` para opacidad o brillo.
+
+### TouchDesigner
+Añade un **OSC In CHOP** en el puerto **7000**. Cada dirección aparece como un canal (`mss/gate`, `mss/level`, `mss/ch1/note`…).

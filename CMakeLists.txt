@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(HyphaeGrain VERSION 0.2.0)
+project(MyceliumSoundSystem VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,12 +16,12 @@ else()
     FetchContent_MakeAvailable(JUCE)
 endif()
 
-juce_add_plugin(HyphaeGrain
+juce_add_plugin(MyceliumSoundSystem
     COMPANY_NAME "Sounday Production"
     PLUGIN_MANUFACTURER_CODE Sndy
     PLUGIN_CODE Hyph
     FORMATS VST3 Standalone
-    PRODUCT_NAME "Hyphae Grain"
+    PRODUCT_NAME "Mycelium Sound System"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
     NEEDS_MIDI_OUTPUT FALSE
@@ -30,19 +30,20 @@ juce_add_plugin(HyphaeGrain
     COPY_PLUGIN_AFTER_BUILD FALSE
     VST3_CATEGORIES Instrument Synth)
 
-target_sources(HyphaeGrain PRIVATE
+target_sources(MyceliumSoundSystem PRIVATE
     Source/PluginProcessor.cpp
     Source/PluginEditor.cpp)
 
-target_compile_definitions(HyphaeGrain PUBLIC
+target_compile_definitions(MyceliumSoundSystem PUBLIC
     JUCE_WEB_BROWSER=0
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0)
 
-target_link_libraries(HyphaeGrain
+target_link_libraries(MyceliumSoundSystem
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
+        juce::juce_osc
     PUBLIC
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags

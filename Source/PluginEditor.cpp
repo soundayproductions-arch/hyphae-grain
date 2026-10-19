@@ -44,6 +44,11 @@ hg::LookAndFeel::LookAndFeel()
     setColour (TextButton::textColourOffId, col::fg);
     setColour (TextButton::textColourOnId, col::bg);
     setColour (ToggleButton::textColourId, col::mute);
+    setColour (TextEditor::backgroundColourId, col::bg);
+    setColour (TextEditor::outlineColourId, col::line);
+    setColour (TextEditor::focusedOutlineColourId, col::hypha);
+    setColour (TextEditor::textColourId, col::fg);
+    setColour (CaretComponent::caretColourId, col::hypha);
 }
 
 void hg::LookAndFeel::drawLinearSlider (Graphics& g, int x, int y, int w, int h, float pos, float, float,
@@ -418,7 +423,44 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     master.add (row ("fxPulse", "Pulse FX tails"));
     master.add (row ("gain", "Volume"));
 
-    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master })
+    // OSC
+    for (auto* l : { &oscOutLabel, &oscToLabel, &oscInLabel })
+    {
+        l->setFont (uiFont (13.0f));
+        l->setColour (Label::textColourId, col::mute);
+        oscBox.addAndMakeVisible (*l);
+    }
+    oscOutLabel.setText ("Send", dontSendNotification);
+    oscToLabel.setText ("Send to", dontSendNotification);
+    oscInLabel.setText ("Receive", dontSendNotification);
+    oscColon.setText (":", dontSendNotification);
+    oscColon.setColour (Label::textColourId, col::mute);
+    oscBox.addAndMakeVisible (oscColon);
+    oscOutToggle.setToggleState (proc.getOscOutEnabled(), dontSendNotification);
+    oscInToggle.setToggleState (proc.getOscInEnabled(), dontSendNotification);
+    oscHostEdit.setText (proc.getOscHost(), false);
+    oscPortEdit.setText (String (proc.getOscOutPort()), false);
+    oscInPortEdit.setText (String (proc.getOscInPort()), false);
+    oscPortEdit.setInputRestrictions (5, "0123456789");
+    oscInPortEdit.setInputRestrictions (5, "0123456789");
+    for (auto* e : { &oscHostEdit, &oscPortEdit, &oscInPortEdit })
+    {
+        e->setFont (uiFont (13.0f));
+        e->onReturnKey = [this] { applyOsc(); };
+        e->onFocusLost = [this] { applyOsc(); };
+        oscBox.addAndMakeVisible (*e);
+    }
+    oscOutToggle.onClick = [this] { applyOsc(); };
+    oscInToggle.onClick = [this] { applyOsc(); };
+    oscBox.addAndMakeVisible (oscOutToggle);
+    oscBox.addAndMakeVisible (oscInToggle);
+    oscStatus.setFont (uiFont (12.0f));
+    oscStatus.setColour (Label::textColourId, col::hypha);
+    oscStatus.setJustificationType (Justification::topLeft);
+    oscBox.addAndMakeVisible (oscStatus);
+    osc.addExtra (oscBox, 136);
+
+    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc })
     {
         addAndMakeVisible (*s);
         for (auto& r : s->rows) allRows.push_back (r.get());
@@ -434,7 +476,7 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     addChildComponent (overlay);
 
     refreshPorts();
-    setSize (1240, 760);
+    setSize (1240, 790);
     startTimerHz (20);
     updateStatus();
 }
@@ -443,6 +485,13 @@ HyphaeGrainEditor::~HyphaeGrainEditor()
 {
     proc.learnTarget = -1;
     setLookAndFeel (nullptr);
+}
+
+void HyphaeGrainEditor::applyOsc()
+{
+    proc.setOscOut (oscOutToggle.getToggleState(), oscHostEdit.getText().trim(), oscPortEdit.getText().getIntValue());
+    proc.setOscIn (oscInToggle.getToggleState(), oscInPortEdit.getText().getIntValue());
+    updateStatus();
 }
 
 void HyphaeGrainEditor::setLearning (bool on)
@@ -494,6 +543,7 @@ void HyphaeGrainEditor::updateStatus()
     else t = proc.getExternalPortId().isEmpty() ? "Choose the LoopBe port Traktor sends its clock to."
                                                 : "Waiting for clock. Press play under SEND in Traktor's Master Clock.";
     tempoInfo.setText (t, dontSendNotification);
+    oscStatus.setText (proc.getOscStatus(), dontSendNotification);
 
     // Learn bar
     if (learning)
@@ -546,11 +596,11 @@ void HyphaeGrainEditor::timerCallback()
 void HyphaeGrainEditor::paint (Graphics& g)
 {
     g.fillAll (col::bg);
-    g.setFont (uiFont (30.0f, true));
+    g.setFont (uiFont (28.0f, true));
     g.setColour (col::fg);
-    g.drawText ("Hyphae", 20, 14, 120, 36, Justification::centredLeft);
+    g.drawText ("Mycelium", 20, 14, 140, 36, Justification::centredLeft);
     g.setColour (col::spore);
-    g.drawText ("Grain", 132, 14, 110, 36, Justification::centredLeft);
+    g.drawText ("Sound System", 152, 14, 200, 36, Justification::centredLeft);
 
     // Gate lamp
     const float lvl = proc.gateLevel.load();
@@ -576,7 +626,7 @@ void HyphaeGrainEditor::resized()
     learnButton.setBounds (header.removeFromRight (120).reduced (0, 6));
     header.removeFromRight (10);
     lampArea = header.removeFromRight (24);
-    statusLabel.setBounds (header.withTrimmedLeft (240));
+    statusLabel.setBounds (header.withTrimmedLeft (340));
 
     r.removeFromTop (4);
     auto bar = r.removeFromTop (40).reduced (12, 6);
@@ -605,6 +655,8 @@ void HyphaeGrainEditor::resized()
     c1.removeFromTop (gap);
     musical.setBounds (c1.removeFromTop (musical.preferredHeight()));
     grains.setBounds (c2.removeFromTop (grains.preferredHeight()));
+    c2.removeFromTop (gap);
+    osc.setBounds (c2.removeFromTop (osc.preferredHeight()));
     iso.setBounds (c3.removeFromTop (iso.preferredHeight()));
     c3.removeFromTop (gap);
     tempo.setBounds (c3.removeFromTop (tempo.preferredHeight()));
@@ -613,6 +665,23 @@ void HyphaeGrainEditor::resized()
     auto pb = presetBox.getLocalBounds().reduced (0, 4);
     const int bw = pb.getWidth() / 5;
     for (int i = 0; i < 5; ++i) presets[i].setBounds (pb.removeFromLeft (bw).reduced (2, 0));
+
+    {
+        auto ob = oscBox.getLocalBounds();
+        auto r1 = ob.removeFromTop (30);
+        oscOutLabel.setBounds (r1.removeFromLeft (104));
+        oscOutToggle.setBounds (r1);
+        auto r2 = ob.removeFromTop (30);
+        oscToLabel.setBounds (r2.removeFromLeft (104));
+        oscPortEdit.setBounds (r2.removeFromRight (56).reduced (0, 3));
+        oscColon.setBounds (r2.removeFromRight (12));
+        oscHostEdit.setBounds (r2.reduced (0, 3));
+        auto r3 = ob.removeFromTop (30);
+        oscInLabel.setBounds (r3.removeFromLeft (104));
+        oscInPortEdit.setBounds (r3.removeFromRight (56).reduced (0, 3));
+        oscInToggle.setBounds (r3);
+        oscStatus.setBounds (ob.withTrimmedTop (4));
+    }
 
     auto hb = portHolder.getLocalBounds();
     portLabel.setBounds (hb.removeFromLeft (104));

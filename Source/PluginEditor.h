@@ -113,7 +113,8 @@ private:
 
     hg::WaveView wave;
     hg::Section source { "Source", "INPUT" }, musical { "Musical", "KEY + HARMONY" }, grains { "Grains", "CLOUD" },
-                iso { "Isochronic", "GATE" }, tempo { "Tempo", "BPM" }, master { "Master", "FX + OUT" };
+                iso { "Isochronic", "GATE" }, tempo { "Tempo", "BPM" }, master { "Master", "FX + OUT" },
+                osc { "OSC", "VISUALS" };
 
     juce::TextButton loadButton { "Load audio file" };
     juce::Label fileLabel;
@@ -126,6 +127,12 @@ private:
     juce::ComboBox portCombo;
     juce::Label portLabel, tempoInfo;
     juce::StringArray portIds;
+
+    juce::Component oscBox;
+    juce::Label oscOutLabel, oscToLabel, oscInLabel, oscStatus, oscColon;
+    juce::ToggleButton oscOutToggle, oscInToggle;
+    juce::TextEditor oscHostEdit, oscPortEdit, oscInPortEdit;
+    void applyOsc();
 
     hg::LearnOverlay overlay;
     std::vector<hg::ParamRow*> allRows;

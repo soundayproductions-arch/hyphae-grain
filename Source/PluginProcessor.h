@@ -2,6 +2,7 @@
 
 #include <juce_audio_utils/juce_audio_utils.h>
 #include <juce_dsp/juce_dsp.h>
+#include <juce_osc/juce_osc.h>
 #include <array>
 #include <atomic>
 #include "Music.h"
@@ -45,7 +46,9 @@ private:
 };
 
 //==============================================================================
-class HyphaeGrainProcessor : public juce::AudioProcessor
+class HyphaeGrainProcessor : public juce::AudioProcessor,
+                             private juce::HighResolutionTimer,
+                             private juce::OSCReceiver::Listener<juce::OSCReceiver::MessageLoopCallback>
 {
 public:
     HyphaeGrainProcessor();
@@ -60,7 +63,7 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Hyphae Grain"; }
+    const juce::String getName() const override { return "Mycelium Sound System"; }
     bool acceptsMidi() const override  { return true; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -102,6 +105,17 @@ public:
     std::atomic<double> currentBpm { 120.0 };
     std::atomic<int>    tempoState { 0 };        // 0 internal, 1 Cubase, 2 Traktor locked, 3 Traktor waiting
     std::atomic<int>    liveActive { 0 };
+
+    // OSC (message thread)
+    void setOscOut (bool enabled, const juce::String& host, int port);
+    void setOscIn (bool enabled, int port);
+    bool getOscOutEnabled() const { return oscOutOn.load(); }
+    bool getOscInEnabled() const  { return oscInOn; }
+    juce::String getOscHost() const { return oscHostName; }
+    int getOscOutPort() const { return oscPortOut; }
+    int getOscInPort() const  { return oscPortIn; }
+    juce::String getOscStatus() const;
+    static constexpr const char* oscPrefix = "/mss";
 
     static constexpr int tableSize = 2048;
     std::array<std::array<float, tableSize>, 4> wavetables;
@@ -145,6 +159,32 @@ private:
     };
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
+
+    // OSC
+    void hiResTimerCallback() override;
+    void oscMessageReceived (const juce::OSCMessage&) override;
+    void pushNoteEvent (int ch, int note, int vel);
+    juce::OSCSender oscSender;
+    juce::OSCReceiver oscReceiver;
+    juce::CriticalSection oscLock;
+    std::atomic<bool> oscOutOn { false };
+    bool oscInOn = false, oscInOk = false;
+    juce::String oscHostName { "127.0.0.1" };
+    int oscPortOut = 7000, oscPortIn = 9000;
+    struct NoteEvt { juce::uint8 ch = 0, note = 0, vel = 0; };
+    juce::AbstractFifo noteFifo { 256 };
+    std::array<NoteEvt, 256> noteQueue;
+    std::atomic<juce::uint32> pulseCount { 0 }, beatCount { 0 }, grainsSpawned { 0 };
+    std::atomic<float> outPeak { 0.0f };
+    std::atomic<int> oscSentPerSec { 0 }, oscReceived { 0 };
+    std::atomic<bool> oscForceAll { true };
+    // timer-thread state
+    juce::uint32 sentPulse = 0, sentBeat = 0, lastGrains = 0;
+    int oscTick = 0, sentThisSecond = 0;
+    float grainRate = 0, levelSmoothed = 0;
+    std::vector<float> lastSentParam;
+    // audio-thread state for pulse/beat detection
+    double prevIsoPhase = 0, beatAcc = 0, prevBeatPos = 0;
     void buildWavetables();
 
     void handleMidi (int src, juce::uint8 b0, juce::uint8 b1, juce::uint8 b2);

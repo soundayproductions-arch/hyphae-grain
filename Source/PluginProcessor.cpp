@@ -230,6 +230,8 @@ HyphaeGrainProcessor::HyphaeGrainProcessor()
     pFxPulse = get ("fxPulse");
 
     buildWavetables();
+    oscReceiver.addListener (this);
+    startTimer (5);
 
     // Built-in source so the plugin makes sound before you load a file.
     {
@@ -284,6 +286,10 @@ HyphaeGrainProcessor::HyphaeGrainProcessor()
 
 HyphaeGrainProcessor::~HyphaeGrainProcessor()
 {
+    stopTimer();
+    oscReceiver.removeListener (this);
+    oscReceiver.disconnect();
+    oscSender.disconnect();
     external.close();
 }
 
@@ -492,6 +498,15 @@ void HyphaeGrainProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
             isoPhase -= std::floor (isoPhase);
             ph = isoPhase;
         }
+        if (ph < prevIsoPhase && gateTarget > 0.5f) ++pulseCount;   // new isochronic pulse
+        prevIsoPhase = ph;
+        {
+            double beatPos;
+            if (havePpq) beatPos = ppq + i * ppqPerSample;
+            else { beatAcc += ppqPerSample; beatPos = beatAcc; }
+            if (std::floor (beatPos) != std::floor (prevBeatPos)) ++beatCount;
+            prevBeatPos = beatPos;
+        }
         gateMix += mixCoef * (gateTarget - gateMix);
         const float g = computeGate (ph, rate);
         gateBuf[(size_t) i] = 1.0f - gateMix * (1.0f - g);
@@ -631,6 +646,9 @@ void HyphaeGrainProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
     }
     buffer.applyGain (0, 0, n, *pGain);
     buffer.applyGain (1, 0, n, *pGain);
+
+    const float pk = buffer.getMagnitude (0, 0, n);
+    if (pk > outPeak.load()) outPeak = pk;
 }
 
 float HyphaeGrainProcessor::computeGate (double ph, double rateHz)
@@ -672,10 +690,12 @@ void HyphaeGrainProcessor::handleMidi (int src, uint8 b0, uint8 b1, uint8 b2)
             return;
         }
         noteOn (id, b1, (float) b2 / 127.0f);
+        pushNoteEvent (src * 16 + ch + 1, b1, b2);
     }
     else if (type == 0x80 || type == 0x90)
     {
         noteOff (id);
+        pushNoteEvent (src * 16 + ch + 1, b1, 0);
     }
 }
 
@@ -793,6 +813,7 @@ void HyphaeGrainProcessor::startGrain (int cents, float amp)
     g->age = -bp.spawnOffset;   // negative age = start offset inside the current block
     g->amp = amp;
     g->active = true;
+    ++grainsSpawned;
 }
 
 //==============================================================================
@@ -868,6 +889,11 @@ void HyphaeGrainProcessor::getStateInformation (MemoryBlock& dest)
     ValueTree extra ("Extra");
     extra.setProperty ("sample", sampleFile.getFullPathName(), nullptr);
     extra.setProperty ("port", external.getIdentifier(), nullptr);
+    extra.setProperty ("oscOut", oscOutOn.load(), nullptr);
+    extra.setProperty ("oscHost", oscHostName, nullptr);
+    extra.setProperty ("oscOutPort", oscPortOut, nullptr);
+    extra.setProperty ("oscIn", oscInOn, nullptr);
+    extra.setProperty ("oscInPort", oscPortIn, nullptr);
     const auto& params = getParameters();
     for (int i = 0; i < (int) ccMap.size(); ++i)
     {
@@ -911,6 +937,152 @@ void HyphaeGrainProcessor::setStateInformation (const void* data, int size)
     if (f.existsAsFile()) loadSample (f);
     const String port = extra.getProperty ("port").toString();
     if (port.isNotEmpty()) openExternalPort (port);
+
+    setOscOut ((bool) extra.getProperty ("oscOut", false), extra.getProperty ("oscHost", "127.0.0.1").toString(), (int) extra.getProperty ("oscOutPort", 7000));
+    setOscIn ((bool) extra.getProperty ("oscIn", false), (int) extra.getProperty ("oscInPort", 9000));
+}
+
+//==============================================================================
+// OSC
+void HyphaeGrainProcessor::pushNoteEvent (int ch, int note, int vel)
+{
+    NoteEvt e; e.ch = (uint8) ch; e.note = (uint8) note; e.vel = (uint8) vel;
+    const auto scope = noteFifo.write (1);
+    if (scope.blockSize1 > 0)      noteQueue[(size_t) scope.startIndex1] = e;
+    else if (scope.blockSize2 > 0) noteQueue[(size_t) scope.startIndex2] = e;
+}
+
+void HyphaeGrainProcessor::setOscOut (bool enabled, const String& host, int port)
+{
+    const ScopedLock sl (oscLock);
+    oscSender.disconnect();
+    oscHostName = host.isNotEmpty() ? host : String ("127.0.0.1");
+    oscPortOut = jlimit (1, 65535, port);
+    bool ok = false;
+    if (enabled) ok = oscSender.connect (oscHostName, oscPortOut);
+    oscOutOn = ok;
+    oscForceAll = true;
+}
+
+void HyphaeGrainProcessor::setOscIn (bool enabled, int port)
+{
+    oscReceiver.disconnect();
+    oscPortIn = jlimit (1, 65535, port);
+    oscInOn = enabled;
+    oscInOk = enabled && oscReceiver.connect (oscPortIn);
+}
+
+String HyphaeGrainProcessor::getOscStatus() const
+{
+    String s = oscOutOn.load() ? "Sending to " + oscHostName + ":" + String (oscPortOut) + " · " + String (oscSentPerSec.load()) + " msg/s"
+                               : String ("Sending is off");
+    s << "\n";
+    if (! oscInOn) s << "Receiving is off";
+    else if (! oscInOk) s << "Port " << oscPortIn << " is busy. Try another port.";
+    else s << "Listening on port " << oscPortIn << " · " << oscReceived.load() << " received";
+    return s;
+}
+
+void HyphaeGrainProcessor::hiResTimerCallback()
+{
+    if (! oscOutOn.load()) return;
+    const ScopedTryLock sl (oscLock);
+    if (! sl.isLocked()) return;
+
+    const String P (oscPrefix);
+    int sent = 0;
+    auto send = [&] (const String& addr, auto... args) { if (oscSender.send (OSCAddressPattern (P + addr), args...)) ++sent; };
+
+    // Events: notes, pulses, beats (every 5 ms)
+    NoteEvt evs[64];
+    {
+        const auto scope = noteFifo.read (jmin (64, noteFifo.getNumReady()));
+        int k = 0;
+        for (int i = 0; i < scope.blockSize1; ++i) evs[k++] = noteQueue[(size_t) (scope.startIndex1 + i)];
+        for (int i = 0; i < scope.blockSize2; ++i) evs[k++] = noteQueue[(size_t) (scope.startIndex2 + i)];
+        for (int i = 0; i < k; ++i)
+        {
+            const String ch = "/ch" + String ((int) evs[i].ch);
+            send ("/note", (int) evs[i].ch, (int) evs[i].note, (int) evs[i].vel);
+            send (ch + "/note", (float) evs[i].note / 127.0f);
+            send (ch + "/velocity", (float) evs[i].vel / 127.0f);
+            send (ch + "/gate", evs[i].vel > 0 ? 1 : 0);
+        }
+    }
+    const uint32 pc = pulseCount.load();
+    if (pc != sentPulse) { sentPulse = pc; send ("/pulse", 1); send ("/pulse/count", (int) pc); }
+    const uint32 bc = beatCount.load();
+    if (bc != sentBeat) { sentBeat = bc; send ("/beat", 1); send ("/beat/count", (int) bc); send ("/beat/bar", (int) (bc % 4) + 1); }
+
+    // Continuous values (50 Hz)
+    if (++oscTick % 4 == 0)
+    {
+        const float pk = outPeak.exchange (0.0f);
+        levelSmoothed = jmax (pk, levelSmoothed * 0.85f);
+        const uint32 gs = grainsSpawned.load();
+        grainRate += 0.2f * ((float) (gs - lastGrains) * 50.0f - grainRate);
+        lastGrains = gs;
+        const float hz = gateHz.load();
+        const double bpm = currentBpm.load();
+
+        send ("/gate", gateLevel.load());
+        send ("/level", jlimit (0.0f, 1.0f, levelSmoothed));
+        send ("/position", effectivePosition.load());
+        send ("/grains", grainRate);
+        send ("/grains/norm", jlimit (0.0f, 1.0f, grainRate / 400.0f));
+        send ("/isohz", hz);
+        send ("/isohz/norm", jlimit (0.0f, 1.0f, hz / 45.0f));
+        send ("/band", hz < 4.0f ? 0 : hz < 8.0f ? 1 : hz < 13.0f ? 2 : hz < 30.0f ? 3 : 4);
+        send ("/bpm", (float) bpm);
+        send ("/bpm/norm", (float) jlimit (0.0, 1.0, (bpm - 40.0) / 160.0));
+    }
+
+    // Parameters: send only what changed (10 Hz), everything after (re)connecting
+    if (oscTick % 20 == 0)
+    {
+        const auto& params = getParameters();
+        const bool all = oscForceAll.exchange (false);
+        if ((int) lastSentParam.size() != params.size()) lastSentParam.assign ((size_t) params.size(), -1.0f);
+        for (int i = 0; i < params.size(); ++i)
+        {
+            auto* pw = dynamic_cast<AudioProcessorParameterWithID*> (params[i]);
+            if (pw == nullptr) continue;
+            const float v = params[i]->getValue();
+            if (! all && std::abs (v - lastSentParam[(size_t) i]) < 1.0e-4f) continue;
+            lastSentParam[(size_t) i] = v;
+            send ("/param/" + pw->paramID, v);
+            if (pw->paramID == "key" || pw->paramID == "scale" || pw->paramID == "harmony")
+                if (auto* c = dynamic_cast<AudioParameterChoice*> (params[i]))
+                    send ("/" + pw->paramID, c->getIndex());
+        }
+    }
+
+    sentThisSecond += sent;
+    if (oscTick % 200 == 0) { oscSentPerSec = sentThisSecond; sentThisSecond = 0; }
+}
+
+void HyphaeGrainProcessor::oscMessageReceived (const OSCMessage& m)
+{
+    ++oscReceived;
+    if (m.isEmpty()) return;
+    String addr = m.getAddressPattern().toString();
+    const String pre = String (oscPrefix) + "/param/";
+    if (! addr.startsWith (pre)) return;
+    addr = addr.substring (pre.length());
+    const bool realUnits = addr.endsWith ("/value");
+    if (realUnits) addr = addr.dropLastCharacters (6);
+
+    auto* p = apvts.getParameter (addr);
+    if (p == nullptr) return;
+    const auto& a = m[0];
+    float v;
+    if (a.isFloat32())    v = a.getFloat32();
+    else if (a.isInt32()) v = (float) a.getInt32();
+    else return;
+    const float norm = realUnits ? p->convertTo0to1 (v) : jlimit (0.0f, 1.0f, v);
+    p->beginChangeGesture();
+    p->setValueNotifyingHost (norm);
+    p->endChangeGesture();
 }
 
 AudioProcessorEditor* HyphaeGrainProcessor::createEditor() { return new HyphaeGrainEditor (*this); }

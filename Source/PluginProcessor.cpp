@@ -143,6 +143,56 @@ namespace
     const double delayBeats[]       = { 0, 1, 0.75, 0.5, 1.0 / 3.0, 0.25, 1.0 / 6.0 };
 }
 
+// Biotron incoming CC map (Playtronica "Biotron MIDI CC" test map). Channel-specific commands use
+// MIDI channel 1 for the plant and channel 2 for the light; global commands are sent on channel 1.
+namespace
+{
+    enum BioKind { bioRaw, bioOnOff, bioScale, bioNote, bioHold };
+    struct BioCC { const char* id; const char* name; int cc; int ch; BioKind kind; int def; };
+    const BioCC bioTable[HyphaeGrainProcessor::numBio] = {
+        { "bioPMaxVel",    "Plant max velocity",          9,  0, bioRaw,   127 },
+        { "bioPTempo",     "Plant tempo division",        14, 0, bioRaw,   64 },
+        { "bioPMinDist",   "Plant min note distance",     20, 0, bioRaw,   0 },
+        { "bioPHumanize",  "Plant humanize",              26, 0, bioOnOff, 0 },
+        { "bioPHumMin",    "Plant humanize min velocity", 25, 0, bioRaw,   64 },
+        { "bioPMute",      "Plant mute",                  31, 0, bioOnOff, 0 },
+        { "bioLMaxVel",    "Light max velocity",          9,  1, bioRaw,   127 },
+        { "bioLTempo",     "Light tempo division",        14, 1, bioRaw,   64 },
+        { "bioLMinDist",   "Light min note distance",     20, 1, bioRaw,   0 },
+        { "bioLHumanize",  "Light humanize",              26, 1, bioOnOff, 0 },
+        { "bioLHumMin",    "Light humanize min velocity", 25, 1, bioRaw,   64 },
+        { "bioLMute",      "Light mute",                  31, 1, bioOnOff, 0 },
+        { "bioFilter",     "Biotron input filter",        3,  0, bioRaw,   64 },
+        { "bioUltra",      "Biotron ultra sensitivity",   15, 0, bioOnOff, 0 },
+        { "bioWake",       "Biotron wake-up",             23, 0, bioRaw,   64 },
+        { "bioPerf",       "Biotron performance mode",    30, 0, bioRaw,   0 },
+        { "bioHold",       "Biotron note hold",           21, 0, bioHold,  99 },
+        { "bioStep",       "Biotron step size",           22, 0, bioRaw,   64 },
+        { "bioScale",      "Biotron scale",               24, 0, bioScale, 0 },
+        { "bioSwing",      "Biotron swing",               86, 0, bioRaw,   0 },
+        { "bioCentre",     "Biotron centre note",         85, 0, bioNote,  60 },
+        { "bioBtnMute",    "Biotron button mute mode",    87, 0, bioRaw,   0 },
+        { "bioLightBend",  "Light pitch bend mode",       27, 0, bioOnOff, 0 },
+        { "bioLightRange", "Light note range",            28, 0, bioRaw,   24 } };
+
+    String bioText (BioKind k, int v)
+    {
+        if (k == bioScale)
+        {
+            switch (v) { case 0: return "Major"; case 20: return "Chromatic"; case 40: return "Mixolydian";
+                         case 69: return "Minor blues"; case 119: return "Hirajoshi"; default: return String (v); }
+        }
+        if (k == bioNote) return MidiMessage::getMidiNoteName (v, true, true, 3) + " (" + String (v) + ")";
+        if (k == bioHold)
+        {
+            if (v == 0) return "1/64 beat";
+            if (v == 99) return "1/2 beat";
+            if (v == 127) return "1 beat";
+        }
+        return String (v);
+    }
+}
+
 AudioProcessorValueTreeState::ParameterLayout HyphaeGrainProcessor::createLayout()
 {
     std::vector<std::unique_ptr<RangedAudioParameter>> p;
@@ -188,15 +238,28 @@ AudioProcessorValueTreeState::ParameterLayout HyphaeGrainProcessor::createLayout
     for (int c = 1; c <= 2; ++c)
     {
         const String n (c);
-        p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "ch" + n + "Notes", 1 }, "Ch " + n + " notes", true));
-        p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "ch" + n + "Transpose", 1 }, "Ch " + n + " transpose", -24, 24, 0,
+        const String who (c == 1 ? "Plant" : "Light");
+        p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "ch" + n + "Notes", 1 }, who + " notes (ch " + n + ")", true));
+        p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "ch" + n + "Transpose", 1 }, who + " transpose (ch " + n + ")", -24, 24, 0,
                          AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int) { return (v > 0 ? "+" : "") + String (v) + " st"; })));
-        p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "ch" + n + "Level", 1 }, "Ch " + n + " volume",
+        p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "ch" + n + "Level", 1 }, who + " volume (ch " + n + ")",
                          NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f,
                          AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; })));
     }
 
     // Tempo
+    for (auto& b : bioTable)
+    {
+        if (b.kind == bioOnOff)
+            p.push_back (std::make_unique<AudioParameterBool> (ParameterID { b.id, 1 }, b.name, b.def > 63));
+        else
+        {
+            const BioKind k = b.kind;
+            p.push_back (std::make_unique<AudioParameterInt> (ParameterID { b.id, 1 }, b.name, 0, 127, b.def,
+                             AudioParameterIntAttributes().withStringFromValueFunction ([k] (int v, int) { return bioText (k, v); })));
+        }
+    }
+
     p.push_back (choiceParam ("tempoSource", "Tempo source", { "Internal", "Cubase", "Traktor MIDI clock" }, 1));
     p.push_back (floatParam ("bpm", "Internal BPM", 40.0f, 200.0f, 0.1f, 120.0f, [] (float v) { return String (v, 1) + " BPM"; }));
 
@@ -247,6 +310,9 @@ HyphaeGrainProcessor::HyphaeGrainProcessor()
         pChTranspose[c] = apvts.getRawParameterValue ("ch" + n + "Transpose");
         pChLevel[c] = apvts.getRawParameterValue ("ch" + n + "Level");
     }
+
+    for (int i = 0; i < numBio; ++i)
+        bioParams[(size_t) i] = apvts.getParameter (bioTable[i].id);
 
     buildWavetables();
     oscReceiver.addListener (this);
@@ -309,6 +375,7 @@ HyphaeGrainProcessor::~HyphaeGrainProcessor()
     oscReceiver.removeListener (this);
     oscReceiver.disconnect();
     oscSender.disconnect();
+    { const ScopedLock sl (bioLock); bioOut.reset(); }
     external.close();
 }
 
@@ -427,6 +494,13 @@ void HyphaeGrainProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
         if (md.numBytes >= 1 && md.data[0] < 0xF0)
             handleMidi (0, md.data[0], md.numBytes > 1 ? md.data[1] : 0, md.numBytes > 2 ? md.data[2] : 0);
     midi.clear();
+    if (bioSendMode.load() == 0)   // Biotron CCs leave through the plugin's MIDI output
+    {
+        const auto scope = bioFifo.read (bioFifo.getNumReady());
+        auto add = [&midi] (uint32 m) { midi.addEvent (MidiMessage ((int) ((m >> 16) & 0xFF), (int) ((m >> 8) & 0xFF), (int) (m & 0xFF)), 0); };
+        for (int i = 0; i < scope.blockSize1; ++i) add (bioQueue[(size_t) (scope.startIndex1 + i)]);
+        for (int i = 0; i < scope.blockSize2; ++i) add (bioQueue[(size_t) (scope.startIndex2 + i)]);
+    }
     {
         ExternalMidiInput::Msg msgs[256];
         const int k = external.pop (msgs, 256);
@@ -700,6 +774,7 @@ void HyphaeGrainProcessor::handleMidi (int src, uint8 b0, uint8 b1, uint8 b2)
 
     if (type == 0xB0)
     {
+        if (b1 == 90 && ch == 0) plantIntensity = (float) b2 / 127.0f;   // Biotron plant sensor
         if (src == 0 && (b1 == 120 || b1 == 123))
             for (auto& v : voices) if (v.id != -1) v.active = false;
         handleCC (src, ch, b1, b2);
@@ -931,6 +1006,8 @@ void HyphaeGrainProcessor::getStateInformation (MemoryBlock& dest)
     extra.setProperty ("oscOutPort", oscPortOut, nullptr);
     extra.setProperty ("oscIn", oscInOn, nullptr);
     extra.setProperty ("oscInPort", oscPortIn, nullptr);
+    extra.setProperty ("bioMode", bioSendMode.load(), nullptr);
+    extra.setProperty ("bioPort", bioPortId, nullptr);
     const auto& params = getParameters();
     for (int i = 0; i < (int) ccMap.size(); ++i)
     {
@@ -958,6 +1035,7 @@ void HyphaeGrainProcessor::setStateInformation (const void* data, int size)
     auto extra = tree.getChildWithName ("Extra");
     if (extra.isValid()) tree.removeChild (extra, nullptr);
     apvts.replaceState (tree);
+    bioResync = true;   // restoring a project never sends CCs to the Biotron
 
     if (! extra.isValid()) return;
     for (auto& m : ccMap) m = -1;
@@ -977,6 +1055,9 @@ void HyphaeGrainProcessor::setStateInformation (const void* data, int size)
 
     setOscOut ((bool) extra.getProperty ("oscOut", false), extra.getProperty ("oscHost", "127.0.0.1").toString(), (int) extra.getProperty ("oscOutPort", 7000));
     setOscIn ((bool) extra.getProperty ("oscIn", false), (int) extra.getProperty ("oscInPort", 9000));
+    bioSendMode = (int) extra.getProperty ("bioMode", 0);
+    const String bport = extra.getProperty ("bioPort").toString();
+    if (bport.isNotEmpty()) openBioPort (bport);
 }
 
 //==============================================================================
@@ -1022,6 +1103,7 @@ String HyphaeGrainProcessor::getOscStatus() const
 
 void HyphaeGrainProcessor::hiResTimerCallback()
 {
+    if (++bioTickCounter % 10 == 0) bioTick();   // every 50 ms
     if (! oscOutOn.load()) return;
     const ScopedTryLock sl (oscLock);
     if (! sl.isLocked()) return;
@@ -1072,6 +1154,7 @@ void HyphaeGrainProcessor::hiResTimerCallback()
         send ("/band", hz < 4.0f ? 0 : hz < 8.0f ? 1 : hz < 13.0f ? 2 : hz < 30.0f ? 3 : 4);
         send ("/bpm", (float) bpm);
         send ("/bpm/norm", (float) jlimit (0.0, 1.0, (bpm - 40.0) / 160.0));
+        send ("/plant/intensity", plantIntensity.load());
     }
 
     // Parameters: send only what changed (10 Hz), everything after (re)connecting
@@ -1120,6 +1203,68 @@ void HyphaeGrainProcessor::oscMessageReceived (const OSCMessage& m)
     p->beginChangeGesture();
     p->setValueNotifyingHost (norm);
     p->endChangeGesture();
+}
+
+//==============================================================================
+// Biotron: send a CC only when its control changes (never on load), at most 4 per 50 ms.
+void HyphaeGrainProcessor::bioTick()
+{
+    if (bioResync.exchange (false))
+    {
+        for (int i = 0; i < numBio; ++i) bioLast[(size_t) i] = bioParams[(size_t) i]->getValue();
+        return;
+    }
+    int sent = 0;
+    for (int i = 0; i < numBio && sent < 4; ++i)
+    {
+        const float v = bioParams[(size_t) i]->getValue();
+        if (std::abs (v - bioLast[(size_t) i]) > 1.0e-6f)
+        {
+            bioLast[(size_t) i] = v;
+            sendBioCC (i);
+            ++sent;
+        }
+    }
+    int idx = bioSendAllIndex.load();
+    if (idx >= 0)
+    {
+        for (int k = 0; k < 2 && idx < numBio; ++k) sendBioCC (idx++);
+        bioSendAllIndex = idx >= numBio ? -1 : idx;
+    }
+}
+
+void HyphaeGrainProcessor::sendBioCC (int i)
+{
+    auto* prm = bioParams[(size_t) i];
+    const auto& b = bioTable[i];
+    const int value = b.kind == bioOnOff ? (prm->getValue() >= 0.5f ? 127 : 0)
+                                         : jlimit (0, 127, roundToInt (prm->convertFrom0to1 (prm->getValue())));
+    const int status = 0xB0 | b.ch;
+    const uint32 packed = ((uint32) status << 16) | ((uint32) b.cc << 8) | (uint32) value;
+    lastBioSent = packed;
+    ++bioSentTotal;
+
+    if (bioSendMode.load() == 1)
+    {
+        const ScopedLock sl (bioLock);
+        if (bioOut != nullptr) bioOut->sendMessageNow (MidiMessage::controllerEvent (b.ch + 1, b.cc, value));
+    }
+    else
+    {
+        const auto scope = bioFifo.write (1);
+        if (scope.blockSize1 > 0)      bioQueue[(size_t) scope.startIndex1] = packed;
+        else if (scope.blockSize2 > 0) bioQueue[(size_t) scope.startIndex2] = packed;
+    }
+}
+
+bool HyphaeGrainProcessor::openBioPort (const String& identifier)
+{
+    const ScopedLock sl (bioLock);
+    bioOut.reset();
+    bioPortId = identifier;
+    if (identifier.isEmpty()) return true;
+    bioOut = MidiOutput::openDevice (identifier);
+    return bioOut != nullptr;
 }
 
 AudioProcessorEditor* HyphaeGrainProcessor::createEditor() { return new HyphaeGrainEditor (*this); }

@@ -1,4 +1,4 @@
-# Mycelium Sound System · VST3 para Windows (Cubase 12)
+# Mycelium Sound System Biotron · VST3 para Windows (Cubase 12)
 
 Sintetizador granular con tonos isocrónicos, delay ping-pong, reverb, MIDI Learn,
 una sección musical (tonalidad, escala, armonía) con tempo de Cubase o del reloj MIDI de Traktor,
@@ -11,8 +11,8 @@ y salida/entrada OSC para visuales.
 ### Opción A · Sin instalar nada (GitHub, recomendada)
 1. Crea un repositorio nuevo en github.com y sube esta carpeta tal cual.
 2. GitHub compila solo (pestaña **Actions** → *Build Windows VST3*, unos 10 min).
-3. Descarga el artefacto **MyceliumSoundSystem-Windows** y descomprímelo.
-4. Copia `Mycelium Sound System.vst3` a `C:\Program Files\Common Files\VST3\`.
+3. Descarga el artefacto **MyceliumSoundSystemBiotron-Windows** y descomprímelo.
+4. Copia `Mycelium Sound System Biotron.vst3` a `C:\Program Files\Common Files\VST3\`.
 
 ### Opción B · En tu PC
 1. Instala **Visual Studio 2022 Community** con la carga de trabajo *Desarrollo para el escritorio con C++*.
@@ -23,23 +23,23 @@ y salida/entrada OSC para visuales.
    cmake --build build --config Release
    ```
    (La primera vez descarga JUCE 8.0.4 automáticamente.)
-4. Copia `build\MyceliumSoundSystem_artefacts\Release\VST3\Mycelium Sound System.vst3` a `C:\Program Files\Common Files\VST3\`.
+4. Copia `build\MyceliumSoundSystem_artefacts\Release\VST3\Mycelium Sound System Biotron.vst3` a `C:\Program Files\Common Files\VST3\`.
 5. En Cubase: *Studio > VST Plug-in Manager > Update plug-in information*.
 
-También se genera **Mycelium Sound System.exe** (Standalone) para probar sin Cubase.
+También se genera **Mycelium Sound System Biotron.exe** (Standalone) para probar sin Cubase.
 
 ---
 
 ## 2. Cubase 12 con el Biotron
 
-1. Crea una **pista de instrumento** con *Mycelium Sound System*.
+1. Crea una **pista de instrumento** con *Mycelium Sound System Biotron*.
 2. En la entrada MIDI de esa pista elige el **Biotron** (USB). Activa la monitorización (altavoz).
 3. Las notas del Biotron se ajustan a la **Key** y **Scale** elegidas y se convierten en acordes según **Harmony**.
 4. Para que los CC del Biotron muevan parámetros: pulsa **MIDI Learn** en el plugin, haz clic en un control
    (por ejemplo *Position* o *Iso rate*) y deja que el Biotron envíe ese CC. Aparece debajo, p. ej. `Cubase ch1 CC20`.
 
 **Live input:** para granular audio en directo, activa *Side-Chain* en la cabecera del plugin
-y envía una pista de audio a *Mycelium Sound System · Live In (Side-Chain)*. Pon **Source = Live input**.
+y envía una pista de audio a *Mycelium Sound System Biotron · Live In (Side-Chain)*. Pon **Source = Live input**.
 
 ---
 
@@ -141,7 +141,10 @@ Los canales `ch1`–`ch16` son las pistas MIDI de Cubase; `ch17`–`ch32` son me
 IDs: source, wave, position, spray, scan, size, density, pitch, detune, stereo, reverse, isoOn, isoSync, isoRate,
 isoDepth, isoDuty, isoEdge, key, scale, harmony, quantize, transpose, keyFollow, drone, tempoSource, bpm, dlySync,
 dlyTime, dlyFb, dlyTone, dlySend, revSize, revDamp, revPre, revSend, fxPulse, gain,
-ch1Notes, ch1Transpose, ch1Level, ch2Notes, ch2Transpose, ch2Level.
+ch1Notes, ch1Transpose, ch1Level, ch2Notes, ch2Transpose, ch2Level,
+bioPMaxVel, bioPTempo, bioPMinDist, bioPHumanize, bioPHumMin, bioPMute, bioLMaxVel, bioLTempo, bioLMinDist,
+bioLHumanize, bioLHumMin, bioLMute, bioFilter, bioUltra, bioWake, bioPerf, bioHold, bioStep, bioScale, bioSwing,
+bioCentre, bioBtnMute, bioLightBend, bioLightRange.
 
 ### Resolume Arena / Avenue
 1. *Preferences > OSC* → **OSC Input** activado, puerto **7000**.
@@ -164,3 +167,45 @@ entrada *Not Connected*). En la sección **Channels**:
 - **Ch 1 / Ch 2 volume**: volumen de los grains de cada planta.
 
 Las dos plantas siguen la misma Key, Scale y Harmony. Los demás canales (3–16) suenan con los ajustes generales.
+
+---
+
+## 7. Página Biotron
+
+Arriba a la derecha: **Synth | Biotron**. La página Biotron sigue el diseño de dos canales del Biotron:
+**Plant = canal 1**, **Light = canal 2**. En los ajustes de Playtronica pon la salida de la planta en el canal 1 y la de la luz en el 2.
+En Cubase, la pista de instrumento recibe el Biotron con el canal en *Any*, para que lleguen los dos canales.
+
+### Controles del Biotron (envían CC al aparato)
+| Control | CC | Canal | Notas |
+|---|---|---|---|
+| Max velocity | 9 | Plant 1 / Light 2 | |
+| Tempo div. | 14 | Plant 1 / Light 2 | |
+| Min distance | 20 | Plant 1 / Light 2 | Distancia mínima entre notas repetidas |
+| Humanize | 26 | Plant 1 / Light 2 | On/Off |
+| Humanize min | 25 | Plant 1 / Light 2 | No debe superar Max velocity |
+| Mute | 31 | Plant 1 / Light 2 | On/Off |
+| Input filter | 3 | global | |
+| Ultra sens. | 15 | global | On/Off |
+| Wake-up | 23 | global | |
+| Performance | 30 | global | |
+| Note hold | 21 | global | 0 = 1/64, 99 = 1/2, 127 = 1 tiempo |
+| Step size | 22 | global | |
+| Scale | 24 | global | 0 Major, 20 Chromatic, 40 Mixolydian, 69 Minor blues, 119 Hirajōshi |
+| Swing | 86 | global | |
+| Centre note | 85 | global | |
+| Button mute | 87 | global | |
+| Pitch bend (Light) | 27 | global | On: la luz dobla las notas de la planta |
+| Note range (Light) | 28 | global | Solo con Pitch bend en Off |
+
+- Solo se envía un CC cuando **mueves** el control (o lo automatizas). Al abrir un proyecto no se envía nada.
+- Máximo 4 CC cada 50 ms: Playtronica avisa de que el control por CC es experimental y no conviene mandar ráfagas.
+- **Send all to Biotron** envía todos los valores, poco a poco.
+- El Biotron no devuelve sus ajustes: los valores del plugin son los últimos que enviaste.
+- **Plant CC90** muestra la intensidad del sensor de la planta (también por OSC: `/mss/plant/intensity`).
+
+### Cómo llegan los CC al Biotron
+- **Cubase MIDI track** (recomendado): crea una pista MIDI con **Input = Mycelium Sound System Biotron** y **Output = Biotron**.
+- **Direct to port**: el plugin abre el puerto del Biotron. Si sale "Port busy", usa la opción de la pista MIDI.
+
+Todos los controles tienen MIDI Learn, automatización en Cubase y OSC (`/mss/param/<id>`).

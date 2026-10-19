@@ -63,9 +63,9 @@ public:
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return "Mycelium Sound System"; }
+    const juce::String getName() const override { return "Mycelium Sound System Biotron"; }
     bool acceptsMidi() const override  { return true; }
-    bool producesMidi() const override { return false; }
+    bool producesMidi() const override { return true; }
     bool isMidiEffect() const override { return false; }
     double getTailLengthSeconds() const override { return 10.0; }
 
@@ -116,6 +116,18 @@ public:
     int getOscInPort() const  { return oscPortIn; }
     juce::String getOscStatus() const;
     static constexpr const char* oscPrefix = "/mss";
+
+    // Biotron hardware control (CCs sent to the Biotron)
+    static constexpr int numBio = 24;
+    void requestBioSendAll() { bioSendAllIndex = 0; }
+    void setBioSendMode (int mode) { bioSendMode = mode; }
+    int getBioSendMode() const { return bioSendMode.load(); }
+    bool openBioPort (const juce::String& identifier);
+    juce::String getBioPortId() const { return bioPortId; }
+    bool isBioPortOpen() const { return bioOut != nullptr; }
+    std::atomic<float> plantIntensity { 0.0f };     // Biotron CC90 on channel 1
+    std::atomic<juce::uint32> lastBioSent { 0 };    // status<<16 | cc<<8 | value
+    std::atomic<int> bioSentTotal { 0 };
 
     static constexpr int tableSize = 2048;
     std::array<std::array<float, tableSize>, 4> wavetables;
@@ -185,6 +197,21 @@ private:
     std::vector<float> lastSentParam;
     // audio-thread state for pulse/beat detection
     double prevIsoPhase = 0, beatAcc = 0, prevBeatPos = 0;
+
+    // Biotron
+    void bioTick();
+    void sendBioCC (int index);
+    std::atomic<int> bioSendMode { 0 };            // 0 = through Cubase (plugin MIDI out), 1 = direct port
+    std::unique_ptr<juce::MidiOutput> bioOut;
+    juce::String bioPortId;
+    juce::CriticalSection bioLock;
+    std::array<float, numBio> bioLast {};
+    std::array<juce::RangedAudioParameter*, numBio> bioParams {};
+    std::atomic<bool> bioResync { true };
+    std::atomic<int> bioSendAllIndex { -1 };
+    juce::AbstractFifo bioFifo { 128 };
+    std::array<juce::uint32, 128> bioQueue {};
+    int bioTickCounter = 0;
     void buildWavetables();
 
     void handleMidi (int src, juce::uint8 b0, juce::uint8 b1, juce::uint8 b2);

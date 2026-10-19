@@ -76,6 +76,16 @@ namespace hg
     };
 
     //==============================================================================
+    class PlantMeter : public juce::Component
+    {
+    public:
+        explicit PlantMeter (HyphaeGrainProcessor& p) : proc (p) {}
+        void paint (juce::Graphics&) override;
+    private:
+        HyphaeGrainProcessor& proc;
+    };
+
+    //==============================================================================
     // Transparent layer shown in MIDI Learn mode: click a control to pick it.
     class LearnOverlay : public juce::Component
     {
@@ -114,7 +124,9 @@ private:
     hg::WaveView wave;
     hg::Section source { "Source", "INPUT" }, musical { "Musical", "KEY + HARMONY" }, grains { "Grains", "CLOUD" },
                 iso { "Isochronic", "GATE" }, tempo { "Tempo", "BPM" }, master { "Master", "FX + OUT" },
-                osc { "OSC", "VISUALS" }, channels { "Channels", "CH 1 + CH 2" };
+                osc { "OSC", "VISUALS" },
+                plantSec { "Plant", "CH 1" }, lightSec { "Light", "CH 2" },
+                sensorSec { "Biotron sensor", "GLOBAL" }, linkSec { "Biotron link", "SEND" };
 
     juce::TextButton loadButton { "Load audio file" };
     juce::Label fileLabel;
@@ -133,6 +145,18 @@ private:
     juce::ToggleButton oscOutToggle, oscInToggle;
     juce::TextEditor oscHostEdit, oscPortEdit, oscInPortEdit;
     void applyOsc();
+
+    // Pages and Biotron link
+    juce::TextButton pageSynth { "Synth" }, pageBio { "Biotron" };
+    int page = 0;
+    void showPage (int);
+    juce::Component bioBox;
+    juce::Label bioSendLabel, bioPortLabel, bioMeterLabel, bioInfo;
+    juce::ComboBox bioSendCombo, bioPortCombo;
+    juce::TextButton bioSendAll { "Send all to Biotron" };
+    std::unique_ptr<hg::PlantMeter> bioMeter;
+    juce::StringArray bioPortIds;
+    void refreshBioPorts();
 
     hg::LearnOverlay overlay;
     std::vector<hg::ParamRow*> allRows;

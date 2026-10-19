@@ -251,10 +251,25 @@ void WaveView::paint (Graphics& g)
 }
 
 //==============================================================================
+void PlantMeter::paint (Graphics& g)
+{
+    auto r = getLocalBounds().toFloat().reduced (0.0f, 4.0f);
+    g.setColour (col::bg);
+    g.fillRoundedRectangle (r, 4.0f);
+    const float v = jlimit (0.0f, 1.0f, proc.plantIntensity.load());
+    g.setColour (col::hypha);
+    g.fillRoundedRectangle (r.withWidth (r.getWidth() * v), 4.0f);
+    g.setColour (col::fg);
+    g.setFont (uiFont (11.0f));
+    g.drawText (String (roundToInt (v * 127.0f)), r.reduced (6.0f, 0.0f), Justification::centredRight);
+}
+
+//==============================================================================
 void LearnOverlay::paint (Graphics& g)
 {
     for (auto* r : rows)
     {
+        if (! r->isShowing()) continue;
         auto b = getLocalArea (r, r->getLocalBounds()).toFloat().expanded (2.0f, 0.0f);
         if (r == selected)
         {
@@ -278,7 +293,7 @@ void LearnOverlay::paint (Graphics& g)
 void LearnOverlay::mouseDown (const MouseEvent& e)
 {
     for (auto* r : rows)
-        if (getLocalArea (r, r->getLocalBounds()).contains (e.getPosition()))
+        if (r->isShowing() && getLocalArea (r, r->getLocalBounds()).contains (e.getPosition()))
         {
             selected = r;
             if (onSelect) onSelect (r);
@@ -423,13 +438,71 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     master.add (row ("fxPulse", "Pulse FX tails"));
     master.add (row ("gain", "Volume"));
 
-    // Channels
-    channels.add (row ("ch1Notes", "Ch 1 notes"));
-    channels.add (row ("ch1Transpose", "Ch 1 transpose", col::hypha));
-    channels.add (row ("ch1Level", "Ch 1 volume", col::hypha));
-    channels.add (row ("ch2Notes", "Ch 2 notes"));
-    channels.add (row ("ch2Transpose", "Ch 2 transpose", col::hypha));
-    channels.add (row ("ch2Level", "Ch 2 volume", col::hypha));
+    // Biotron page: plant (ch 1) and light (ch 2)
+    for (int c = 0; c < 2; ++c)
+    {
+        auto& s = c == 0 ? plantSec : lightSec;
+        const String n (c + 1), L (c == 0 ? "P" : "L");
+        s.add (row (("ch" + n + "Notes").toRawUTF8(), "Notes"));
+        s.add (row (("ch" + n + "Transpose").toRawUTF8(), "Transpose", col::hypha));
+        s.add (row (("ch" + n + "Level").toRawUTF8(), "Volume", col::hypha));
+        s.add (row (("bio" + L + "MaxVel").toRawUTF8(), "Max velocity", col::spore));
+        s.add (row (("bio" + L + "Tempo").toRawUTF8(), "Tempo div.", col::spore));
+        s.add (row (("bio" + L + "MinDist").toRawUTF8(), "Min distance", col::spore));
+        s.add (row (("bio" + L + "Humanize").toRawUTF8(), "Humanize"));
+        s.add (row (("bio" + L + "HumMin").toRawUTF8(), "Humanize min", col::spore));
+        s.add (row (("bio" + L + "Mute").toRawUTF8(), "Mute"));
+    }
+    lightSec.add (row ("bioLightBend", "Pitch bend"));
+    lightSec.add (row ("bioLightRange", "Note range", col::spore));
+
+    sensorSec.add (row ("bioFilter", "Input filter", col::spore));
+    sensorSec.add (row ("bioUltra", "Ultra sens."));
+    sensorSec.add (row ("bioWake", "Wake-up", col::spore));
+    sensorSec.add (row ("bioPerf", "Performance", col::spore));
+    sensorSec.add (row ("bioHold", "Note hold", col::spore));
+    sensorSec.add (row ("bioStep", "Step size", col::spore));
+    sensorSec.add (row ("bioScale", "Scale", col::spore));
+    sensorSec.add (row ("bioSwing", "Swing", col::spore));
+    sensorSec.add (row ("bioCentre", "Centre note", col::spore));
+    sensorSec.add (row ("bioBtnMute", "Button mute", col::spore));
+
+    for (auto* l : { &bioSendLabel, &bioPortLabel, &bioMeterLabel })
+    {
+        l->setFont (uiFont (13.0f));
+        l->setColour (Label::textColourId, col::mute);
+        bioBox.addAndMakeVisible (*l);
+    }
+    bioSendLabel.setText ("Send via", dontSendNotification);
+    bioPortLabel.setText ("Biotron port", dontSendNotification);
+    bioMeterLabel.setText ("Plant CC90", dontSendNotification);
+    bioSendCombo.addItem ("Cubase MIDI track", 1);
+    bioSendCombo.addItem ("Direct to port", 2);
+    bioSendCombo.setSelectedId (proc.getBioSendMode() + 1, dontSendNotification);
+    bioSendCombo.onChange = [this] { proc.setBioSendMode (bioSendCombo.getSelectedId() - 1); updateStatus(); };
+    bioPortCombo.onChange = [this]
+    {
+        const int idx = bioPortCombo.getSelectedId() - 2;
+        proc.openBioPort (idx >= 0 && idx < bioPortIds.size() ? bioPortIds[idx] : String());
+        updateStatus();
+    };
+    bioSendAll.onClick = [this] { proc.requestBioSendAll(); };
+    bioMeter = std::make_unique<PlantMeter> (proc);
+    bioInfo.setFont (uiFont (12.0f));
+    bioInfo.setColour (Label::textColourId, col::hypha);
+    bioInfo.setJustificationType (Justification::topLeft);
+    for (Component* c : { (Component*) &bioSendCombo, (Component*) &bioPortCombo, (Component*) &bioSendAll, (Component*) bioMeter.get(), (Component*) &bioInfo })
+        bioBox.addAndMakeVisible (c);
+    linkSec.addExtra (bioBox, 250);
+
+    pageSynth.setClickingTogglesState (true);
+    pageBio.setClickingTogglesState (true);
+    pageSynth.setRadioGroupId (4711);
+    pageBio.setRadioGroupId (4711);
+    pageSynth.onClick = [this] { showPage (0); };
+    pageBio.onClick = [this] { showPage (1); };
+    addAndMakeVisible (pageSynth);
+    addAndMakeVisible (pageBio);
 
     // OSC
     for (auto* l : { &oscOutLabel, &oscToLabel, &oscInLabel })
@@ -468,7 +541,7 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     oscBox.addAndMakeVisible (oscStatus);
     osc.addExtra (oscBox, 136);
 
-    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc, &channels })
+    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc, &plantSec, &lightSec, &sensorSec, &linkSec })
     {
         addAndMakeVisible (*s);
         for (auto& r : s->rows) allRows.push_back (r.get());
@@ -484,7 +557,9 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     addChildComponent (overlay);
 
     refreshPorts();
-    setSize (1240, 870);
+    refreshBioPorts();
+    showPage (0);
+    setSize (1240, 790);
     startTimerHz (20);
     updateStatus();
 }
@@ -493,6 +568,35 @@ HyphaeGrainEditor::~HyphaeGrainEditor()
 {
     proc.learnTarget = -1;
     setLookAndFeel (nullptr);
+}
+
+void HyphaeGrainEditor::showPage (int p)
+{
+    page = p;
+    pageSynth.setToggleState (p == 0, dontSendNotification);
+    pageBio.setToggleState (p == 1, dontSendNotification);
+    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc })
+        s->setVisible (p == 0);
+    for (auto* s : { &plantSec, &lightSec, &sensorSec, &linkSec })
+        s->setVisible (p == 1);
+    overlay.selected = nullptr;
+    proc.learnTarget = -1;
+    overlay.toFront (false);
+    repaint();
+}
+
+void HyphaeGrainEditor::refreshBioPorts()
+{
+    const auto devices = MidiOutput::getAvailableDevices();
+    StringArray ids;
+    for (auto& d : devices) ids.add (d.identifier);
+    if (ids == bioPortIds && bioPortCombo.getNumItems() > 0) return;
+    bioPortIds = ids;
+    bioPortCombo.clear (dontSendNotification);
+    bioPortCombo.addItem ("None", 1);
+    for (int i = 0; i < devices.size(); ++i) bioPortCombo.addItem (devices[i].name, i + 2);
+    const int cur = bioPortIds.indexOf (proc.getBioPortId());
+    bioPortCombo.setSelectedId (cur >= 0 ? cur + 2 : 1, dontSendNotification);
 }
 
 void HyphaeGrainEditor::applyOsc()
@@ -552,6 +656,20 @@ void HyphaeGrainEditor::updateStatus()
                                                 : "Waiting for clock. Press play under SEND in Traktor's Master Clock.";
     tempoInfo.setText (t, dontSendNotification);
     oscStatus.setText (proc.getOscStatus(), dontSendNotification);
+    {
+        String b;
+        if (proc.getBioSendMode() == 0)
+            b = "In Cubase: add a MIDI track with input \"Mycelium Sound System Biotron\" and output = Biotron.";
+        else
+            b = proc.getBioPortId().isEmpty() ? String ("Choose the Biotron port.")
+              : proc.isBioPortOpen() ? String ("Port open.") : String ("Port busy: disable it in Cubase or use the MIDI track.");
+        const uint32 m = proc.lastBioSent.load();
+        if (proc.bioSentTotal.load() > 0)
+            b << "\nSent " << proc.bioSentTotal.load() << " · last CC" << (int) ((m >> 8) & 0xFF) << " = " << (int) (m & 0xFF)
+              << " on ch " << (int) (((m >> 16) & 0x0F) + 1);
+        b << "\nOnly sent when you move a control. The Biotron does not report its settings back.";
+        bioInfo.setText (b, dontSendNotification);
+    }
 
     // Learn bar
     if (learning)
@@ -595,7 +713,8 @@ void HyphaeGrainEditor::timerCallback()
         }
         if (overlay.selected != nullptr) removeButton.setVisible (overlay.selected->mapText.isNotEmpty());
     }
-    if (++portTimer >= 40) { portTimer = 0; refreshPorts(); }
+    if (++portTimer >= 40) { portTimer = 0; refreshPorts(); refreshBioPorts(); }
+    if (page == 1 && bioMeter != nullptr) bioMeter->repaint();
     updateStatus();
     wave.repaint();
     repaint (lampArea);
@@ -609,6 +728,8 @@ void HyphaeGrainEditor::paint (Graphics& g)
     g.drawText ("Mycelium", 20, 14, 140, 36, Justification::centredLeft);
     g.setColour (col::spore);
     g.drawText ("Sound System", 152, 14, 200, 36, Justification::centredLeft);
+    g.setColour (col::hypha);
+    g.drawText ("Biotron", 336, 14, 120, 36, Justification::centredLeft);
 
     // Gate lamp
     const float lvl = proc.gateLevel.load();
@@ -634,7 +755,10 @@ void HyphaeGrainEditor::resized()
     learnButton.setBounds (header.removeFromRight (120).reduced (0, 6));
     header.removeFromRight (10);
     lampArea = header.removeFromRight (24);
-    statusLabel.setBounds (header.withTrimmedLeft (340));
+    header.removeFromRight (10);
+    pageBio.setBounds (header.removeFromRight (84).reduced (0, 6));
+    pageSynth.setBounds (header.removeFromRight (84).reduced (2, 6));
+    statusLabel.setBounds (header.withTrimmedLeft (450));
 
     r.removeFromTop (4);
     auto bar = r.removeFromTop (40).reduced (12, 6);
@@ -669,8 +793,26 @@ void HyphaeGrainEditor::resized()
     c3.removeFromTop (gap);
     tempo.setBounds (c3.removeFromTop (tempo.preferredHeight()));
     master.setBounds (c4.removeFromTop (master.preferredHeight()));
-    c4.removeFromTop (gap);
-    channels.setBounds (c4.removeFromTop (channels.preferredHeight()));
+
+    // Biotron page uses the same four columns
+    plantSec.setBounds (c1.getX(), source.getY(), c1.getWidth(), plantSec.preferredHeight());
+    lightSec.setBounds (c2.getX(), grains.getY(), c2.getWidth(), lightSec.preferredHeight());
+    sensorSec.setBounds (c3.getX(), iso.getY(), c3.getWidth(), sensorSec.preferredHeight());
+    linkSec.setBounds (c4.getX(), master.getY(), c4.getWidth(), linkSec.preferredHeight());
+    {
+        auto bb = bioBox.getLocalBounds();
+        auto r1 = bb.removeFromTop (30);
+        bioSendLabel.setBounds (r1.removeFromLeft (104));
+        bioSendCombo.setBounds (r1.reduced (0, 3));
+        auto r2 = bb.removeFromTop (30);
+        bioPortLabel.setBounds (r2.removeFromLeft (104));
+        bioPortCombo.setBounds (r2.reduced (0, 3));
+        auto r3 = bb.removeFromTop (30);
+        bioMeterLabel.setBounds (r3.removeFromLeft (104));
+        bioMeter->setBounds (r3);
+        bioSendAll.setBounds (bb.removeFromTop (34).reduced (0, 3));
+        bioInfo.setBounds (bb.withTrimmedTop (6));
+    }
 
     auto pb = presetBox.getLocalBounds().reduced (0, 4);
     const int bw = pb.getWidth() / 5;

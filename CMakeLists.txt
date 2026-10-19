@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(MyceliumSoundSystem VERSION 0.3.0)
+project(MyceliumSoundSystem VERSION 0.4.0)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,10 +21,10 @@ juce_add_plugin(MyceliumSoundSystem
     PLUGIN_MANUFACTURER_CODE Sndy
     PLUGIN_CODE Hyph
     FORMATS VST3 Standalone
-    PRODUCT_NAME "Mycelium Sound System"
+    PRODUCT_NAME "Mycelium Sound System Biotron"
     IS_SYNTH TRUE
     NEEDS_MIDI_INPUT TRUE
-    NEEDS_MIDI_OUTPUT FALSE
+    NEEDS_MIDI_OUTPUT TRUE
     IS_MIDI_EFFECT FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     COPY_PLUGIN_AFTER_BUILD FALSE

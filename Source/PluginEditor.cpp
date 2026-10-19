@@ -423,6 +423,14 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     master.add (row ("fxPulse", "Pulse FX tails"));
     master.add (row ("gain", "Volume"));
 
+    // Channels
+    channels.add (row ("ch1Notes", "Ch 1 notes"));
+    channels.add (row ("ch1Transpose", "Ch 1 transpose", col::hypha));
+    channels.add (row ("ch1Level", "Ch 1 volume", col::hypha));
+    channels.add (row ("ch2Notes", "Ch 2 notes"));
+    channels.add (row ("ch2Transpose", "Ch 2 transpose", col::hypha));
+    channels.add (row ("ch2Level", "Ch 2 volume", col::hypha));
+
     // OSC
     for (auto* l : { &oscOutLabel, &oscToLabel, &oscInLabel })
     {
@@ -460,7 +468,7 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     oscBox.addAndMakeVisible (oscStatus);
     osc.addExtra (oscBox, 136);
 
-    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc })
+    for (auto* s : { &source, &musical, &grains, &iso, &tempo, &master, &osc, &channels })
     {
         addAndMakeVisible (*s);
         for (auto& r : s->rows) allRows.push_back (r.get());
@@ -476,7 +484,7 @@ HyphaeGrainEditor::HyphaeGrainEditor (HyphaeGrainProcessor& p)
     addChildComponent (overlay);
 
     refreshPorts();
-    setSize (1240, 790);
+    setSize (1240, 870);
     startTimerHz (20);
     updateStatus();
 }
@@ -661,6 +669,8 @@ void HyphaeGrainEditor::resized()
     c3.removeFromTop (gap);
     tempo.setBounds (c3.removeFromTop (tempo.preferredHeight()));
     master.setBounds (c4.removeFromTop (master.preferredHeight()));
+    c4.removeFromTop (gap);
+    channels.setBounds (c4.removeFromTop (channels.preferredHeight()));
 
     auto pb = presetBox.getLocalBounds().reduced (0, 4);
     const int bw = pb.getWidth() / 5;

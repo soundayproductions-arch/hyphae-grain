@@ -114,7 +114,7 @@ private:
     hg::WaveView wave;
     hg::Section source { "Source", "INPUT" }, musical { "Musical", "KEY + HARMONY" }, grains { "Grains", "CLOUD" },
                 iso { "Isochronic", "GATE" }, tempo { "Tempo", "BPM" }, master { "Master", "FX + OUT" },
-                osc { "OSC", "VISUALS" };
+                osc { "OSC", "VISUALS" }, channels { "Channels", "CH 1 + CH 2" };
 
     juce::TextButton loadButton { "Load audio file" };
     juce::Label fileLabel;

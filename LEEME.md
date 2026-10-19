@@ -94,6 +94,7 @@ Con **Key follow = Notes on channel 16**, lo mismo vale para notas del canal 16 
 | Isochronic | Gate, Sync, Rate, Depth, Duty, Edge + presets Delta/Theta/Alpha/Beta/Gamma |
 | Tempo | Source (Internal / Cubase / Traktor), Internal BPM, puerto de Traktor |
 | Master | Delay sync, time, feedback, tone, send · Reverb size, damping, pre-delay, send · Pulse FX tails · Volume |
+| Channels | Ch 1 / Ch 2: notes on/off, transpose (±24 st), volume |
 
 Todos son automatizables en Cubase y asignables con MIDI Learn. Los mapeos, el sample cargado y el puerto
 de Traktor se guardan con el proyecto de Cubase.
@@ -139,7 +140,8 @@ Los canales `ch1`–`ch16` son las pistas MIDI de Cubase; `ch17`–`ch32` son me
 
 IDs: source, wave, position, spray, scan, size, density, pitch, detune, stereo, reverse, isoOn, isoSync, isoRate,
 isoDepth, isoDuty, isoEdge, key, scale, harmony, quantize, transpose, keyFollow, drone, tempoSource, bpm, dlySync,
-dlyTime, dlyFb, dlyTone, dlySend, revSize, revDamp, revPre, revSend, fxPulse, gain.
+dlyTime, dlyFb, dlyTone, dlySend, revSize, revDamp, revPre, revSend, fxPulse, gain,
+ch1Notes, ch1Transpose, ch1Level, ch2Notes, ch2Transpose, ch2Level.
 
 ### Resolume Arena / Avenue
 1. *Preferences > OSC* → **OSC Input** activado, puerto **7000**.
@@ -148,3 +150,17 @@ dlyTime, dlyFb, dlyTone, dlySend, revSize, revDamp, revPre, revSend, fxPulse, ga
 
 ### TouchDesigner
 Añade un **OSC In CHOP** en el puerto **7000**. Cada dirección aparece como un canal (`mss/gate`, `mss/level`, `mss/ch1/note`…).
+
+---
+
+## 6. Channels: Biotron y Pocket Scion a la vez
+
+Manda cada planta por su canal con dos pistas MIDI en Cubase (Input: Biotron → Output: Mycelium Sound System, Channel 1;
+Input: Pocket Scion → Output: Mycelium Sound System, Channel 2; monitorización activada; la pista de instrumento con
+entrada *Not Connected*). En la sección **Channels**:
+
+- **Ch 1 / Ch 2 notes**: Off = esa planta no toca notas, solo mueve parámetros con sus CC (MIDI Learn). Sus notas siguen saliendo por OSC.
+- **Ch 1 / Ch 2 transpose**: transposición propia en semitonos (−12 = una octava abajo), sumada al Transpose general.
+- **Ch 1 / Ch 2 volume**: volumen de los grains de cada planta.
+
+Las dos plantas siguen la misma Key, Scale y Harmony. Los demás canales (3–16) suenan con los ajustes generales.

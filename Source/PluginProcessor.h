@@ -197,7 +197,7 @@ private:
 
     // Values read once per block (audio thread only)
     struct BlockParams { int src = 0, wave = 2; float position = 0, spray = 0, size = 100, density = 20, pitch = 0, detune = 0, stereo = 0, reverse = 0;
-                         int key = 0, scale = 0, harmony = 0, transpose = 0; bool quantize = true, haveSample = false; int spawnOffset = 0; } bp;
+                         int key = 0, scale = 0, harmony = 0, transpose = 0; int chTranspose[2] = { 0, 0 }; float chLevel[2] = { 1, 1 }; bool quantize = true, haveSample = false; int spawnOffset = 0; } bp;
 
     juce::Random rng;
     double sr = 44100.0;
@@ -240,6 +240,9 @@ private:
                        *pIsoEdge, *pKey, *pScale, *pHarmony, *pQuantize, *pTranspose, *pKeyFollow, *pDrone,
                        *pTempoSource, *pBpm, *pDlySync, *pDlyTime, *pDlyFb, *pDlyTone, *pDlySend,
                        *pRevSize, *pRevDamp, *pRevPre, *pRevSend, *pFxPulse;
+    std::atomic<float>* pChNotes[2];
+    std::atomic<float>* pChTranspose[2];
+    std::atomic<float>* pChLevel[2];
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (HyphaeGrainProcessor)
 };

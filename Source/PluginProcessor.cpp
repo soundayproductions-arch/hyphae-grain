@@ -184,6 +184,18 @@ AudioProcessorValueTreeState::ParameterLayout HyphaeGrainProcessor::createLayout
     p.push_back (choiceParam ("keyFollow", "Key follow", { "Off", "Notes on channel 16", "Notes from Traktor port" }, 0));
     p.push_back (boolParam ("drone", "Drone", false));
 
+    // Channels: per-plant settings for MIDI channel 1 and 2 (Cubase tracks)
+    for (int c = 1; c <= 2; ++c)
+    {
+        const String n (c);
+        p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "ch" + n + "Notes", 1 }, "Ch " + n + " notes", true));
+        p.push_back (std::make_unique<AudioParameterInt> (ParameterID { "ch" + n + "Transpose", 1 }, "Ch " + n + " transpose", -24, 24, 0,
+                         AudioParameterIntAttributes().withStringFromValueFunction ([] (int v, int) { return (v > 0 ? "+" : "") + String (v) + " st"; })));
+        p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { "ch" + n + "Level", 1 }, "Ch " + n + " volume",
+                         NormalisableRange<float> (0.0f, 1.0f, 0.01f), 1.0f,
+                         AudioParameterFloatAttributes().withStringFromValueFunction ([] (float v, int) { return String (roundToInt (v * 100.0f)) + " %"; })));
+    }
+
     // Tempo
     p.push_back (choiceParam ("tempoSource", "Tempo source", { "Internal", "Cubase", "Traktor MIDI clock" }, 1));
     p.push_back (floatParam ("bpm", "Internal BPM", 40.0f, 200.0f, 0.1f, 120.0f, [] (float v) { return String (v, 1) + " BPM"; }));
@@ -228,6 +240,13 @@ HyphaeGrainProcessor::HyphaeGrainProcessor()
     pDlyTone = get ("dlyTone"); pDlySend = get ("dlySend");   pRevSize = get ("revSize");
     pRevDamp = get ("revDamp"); pRevPre = get ("revPre");     pRevSend = get ("revSend");
     pFxPulse = get ("fxPulse");
+    for (int c = 0; c < 2; ++c)
+    {
+        const String n (c + 1);
+        pChNotes[c] = apvts.getRawParameterValue ("ch" + n + "Notes");
+        pChTranspose[c] = apvts.getRawParameterValue ("ch" + n + "Transpose");
+        pChLevel[c] = apvts.getRawParameterValue ("ch" + n + "Level");
+    }
 
     buildWavetables();
     oscReceiver.addListener (this);
@@ -421,6 +440,14 @@ void HyphaeGrainProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&
     bp.pitch = *pPitch;           bp.detune = *pDetune; bp.stereo = *pStereo; bp.reverse = *pReverse;
     bp.key = (int) *pKey;         bp.scale = (int) *pScale; bp.harmony = (int) *pHarmony;
     bp.transpose = (int) *pTranspose; bp.quantize = *pQuantize > 0.5f; bp.spawnOffset = 0;
+    for (int c = 0; c < 2; ++c)
+    {
+        bp.chTranspose[c] = (int) *pChTranspose[c];
+        bp.chLevel[c] = *pChLevel[c];
+        if (*pChNotes[c] < 0.5f)   // notes switched off: release that plant's voices
+            for (auto& v : voices)
+                if (v.active && v.id >= 0 && v.id / 128 == c) v.active = false;
+    }
 
     SpinLock::ScopedTryLockType sampleGuard (sampleLock);
     bp.haveSample = sampleGuard.isLocked() && sample.getNumSamples() > 1;
@@ -689,8 +716,10 @@ void HyphaeGrainProcessor::handleMidi (int src, uint8 b0, uint8 b1, uint8 b2)
                 kp->setValueNotifyingHost (kp->convertTo0to1 ((float) (b1 % 12)));
             return;
         }
+        pushNoteEvent (src * 16 + ch + 1, b1, b2);           // visuals still get the note
+        if (src == 0 && ch < 2 && *pChNotes[ch] < 0.5f)      // channel set to CC only
+            return;
         noteOn (id, b1, (float) b2 / 127.0f);
-        pushNoteEvent (src * 16 + ch + 1, b1, b2);
     }
     else if (type == 0x80 || type == 0x90)
     {
@@ -753,10 +782,18 @@ void HyphaeGrainProcessor::noteOff (int id)
 void HyphaeGrainProcessor::spawnForVoice (const Voice& v, int numVoices)
 {
     int tones[6];
-    const int num = music::chord (v.note + bp.transpose, bp.key, bp.scale, bp.harmony, bp.quantize, tones);
+    int transpose = bp.transpose;
+    float level = 1.0f;
+    if (v.id >= 0 && v.id / 128 < 2)   // Cubase channel 1 or 2
+    {
+        transpose += bp.chTranspose[v.id / 128];
+        level = bp.chLevel[v.id / 128];
+    }
+    if (level <= 0.0f) return;
+    const int num = music::chord (v.note + transpose, bp.key, bp.scale, bp.harmony, bp.quantize, tones);
     const float sizeSec = bp.size * 0.001f;
     const float norm = 0.5f / std::sqrt (jmax (1.0f, bp.density * sizeSec * jmax (1.0f, numVoices * 0.7f) * (float) num));
-    const float amp = norm * (0.35f + 0.65f * v.vel);
+    const float amp = norm * (0.35f + 0.65f * v.vel) * level;
     for (int t = 0; t < num; ++t)
     {
         const double cents = (tones[t] - 60 + bp.pitch) * 100.0 + bp.detune * (rng.nextDouble() * 2.0 - 1.0);
